@@ -1,0 +1,151 @@
+from __future__ import print_function
+from random import shuffle
+import glob
+import numpy as np
+import cv2
+import h5py
+from PIL import Image
+import os
+import random
+from tensorflow import keras
+from keras import layers
+import h5py
+from keras.models import Model
+from keras.layers import Input, MaxPooling2D, Dropout, Conv2DTranspose, BatchNormalization, Activation
+from keras.layers.convolutional import Conv2D, Conv2DTranspose
+from keras.layers import Concatenate
+import threading
+from keras.utils import plot_model
+import tensorflow as tf
+from keras.models import model_from_json
+from skimage import io
+from matplotlib import pyplot as plt
+from keras.preprocessing.image import ImageDataGenerator
+
+shuffle_data = True  # shuffle the addresses before saving
+images_train_root = '/home/cic2017/Documentos/Datasets/Trompeta/Dataset trompeta/Train/*'
+addrs = glob.glob(images_train_root)
+print(addrs)
+
+#Cargar direcciones de las imagenes RGB
+full_data_rgb = []
+full_data_labels = []
+count2 = 0
+for i in addrs:
+    count2 = count2 + 1
+    a = i+'/*.jpg'
+    addrs_rgb = glob.glob(a)
+    count=0
+    for x in addrs_rgb:
+        count = count+1
+        full_data_rgb.append(x)
+        full_data_labels.append(count2-1)
+
+
+full_data_rgb.sort()
+print(full_data_rgb)
+print(full_data_labels)
+print(len(full_data_rgb))
+print(len(full_data_labels))
+full_data_labels = tf.keras.utils.to_categorical(full_data_labels, num_classes=8)
+
+
+print(full_data_labels)
+
+if shuffle_data:
+    d = list(zip(full_data_rgb, full_data_labels))
+    shuffle(d)
+    full_data_rgb, full_data_labels = zip(*d)
+
+train_addrscolor = full_data_rgb[0:int(1 * len(full_data_rgb))]
+train_addrslabels = full_data_labels[0:int(1 * len(full_data_labels))]
+
+print(train_addrscolor)
+print(train_addrslabels[0])
+
+sia = 180
+sib = 240
+
+
+def proceesar_rgb(ruta_rgb):
+    imgd = Image.open(ruta_rgb)  # Replace with your image name here
+    imgd = np.array(imgd)
+    imgd = cv2.resize(imgd, (sib, sia))
+    max_val = float(np.iinfo(imgd.dtype).max)
+    imgd = imgd/max_val
+    imgd = imgd.astype('float32')
+    auxd = np.zeros((sia, sib, 3), np.float32)
+    auxd[:, :, :] = imgd[:, :, 0:3]
+    #plt.imshow(auxd)
+    #plt.axis("off")
+    #plt.show()
+    #auxd = np.transpose(auxd, (2, 0, 1))
+    return auxd
+
+
+def generator(image_file_list, labels_file_list, batch_size):
+    i = 0
+    while True:
+        batch = {'images': [], 'labels': []}  # use a dict for multiple inputs
+        for b in range(batch_size):
+            if i == len(image_file_list):
+                i = 0
+            sample = image_file_list[i]
+            sample2 = labels_file_list[i]
+            image_file_path = sample
+            labels = sample2
+            i += 1
+            image = proceesar_rgb(image_file_path)
+            batch['images'].append(image)
+            batch['labels'].append(labels)
+        batch['images'] = np.array(batch['images'])
+        batch['labels'] = np.array(batch['labels'])
+        yield batch['images'], batch['labels']
+
+
+data_format = 'channels_first'
+input_height = sia
+input_width = sib
+
+model = keras.models.Sequential([
+    keras.layers.Conv2D(filters=96, kernel_size=(11,11), strides=(4,4), activation='relu', input_shape=(180,240,3)),
+    keras.layers.BatchNormalization(),
+    keras.layers.MaxPool2D(pool_size=(3,3), strides=(2,2)),
+    keras.layers.Conv2D(filters=256, kernel_size=(5,5), strides=(1,1), activation='relu', padding="same"),
+    keras.layers.BatchNormalization(),
+    keras.layers.MaxPool2D(pool_size=(3,3), strides=(2,2)),
+    keras.layers.Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
+    keras.layers.BatchNormalization(),
+    keras.layers.Conv2D(filters=384, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
+    keras.layers.BatchNormalization(),
+    keras.layers.Conv2D(filters=256, kernel_size=(3,3), strides=(1,1), activation='relu', padding="same"),
+    keras.layers.BatchNormalization(),
+    keras.layers.MaxPool2D(pool_size=(3,3), strides=(2,2)),
+    keras.layers.Flatten(),
+    keras.layers.Dense(4096, activation='relu'),
+    keras.layers.Dropout(0.5),
+    keras.layers.Dense(4096, activation='relu'),
+    keras.layers.Dropout(0.5),
+    keras.layers.Dense(8, activation='softmax')
+])
+
+model.compile(loss='categorical_crossentropy', optimizer=keras.optimizers.Adam(learning_rate=0.0001), metrics=['accuracy'])
+model.summary()
+
+
+def data_statistic(train_dataset):
+    len(train_dataset)
+    return len(train_dataset)
+
+
+batch_size = 5
+train_generator = generator(train_addrscolor, train_addrslabels, batch_size)
+nb_train_samples = data_statistic(train_addrslabels)
+print('train samples: %d' % nb_train_samples)
+
+model.fit(train_generator, epochs=100, steps_per_epoch=nb_train_samples // batch_size,max_queue_size=5, shuffle=False, workers=8, use_multiprocessing=True)
+
+model_json = model.to_json()
+with open('alexnet.json', 'w') as json_file:
+    json_file.write(model_json)
+model.save_weights('alexnet.h5')
