@@ -1,5 +1,5 @@
 # CIC-Trumpet-Detection
-Dataset for fingering classification in trumpet.
+Dataset for visual fingering classification in trumpet.
 We use the AlexNet [1] CNN model to perform the classification of the images. We implemented the CNN model in Keras with tensorflow.
 
 If you want the Dataset please send an email to jvaldezr2018@cic.ipn.mx
